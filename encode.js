@@ -15,7 +15,7 @@ let throwOnIterable
 let target
 let targetView
 let position = 0
-let safeEnd
+let safeEnd = 0
 let bundledStrings = null
 const MAX_BUNDLE_SIZE = 0xf000
 const hasNonLatin = /[\u0080-\uFFFF]/
@@ -25,7 +25,7 @@ export class Encoder extends Decoder {
 		super(options)
 		this.offset = 0
 		let typeBuffer
-		let start
+		let start = 0
 		let sharedStructures
 		let hasSharedUpdate
 		let structures
@@ -64,16 +64,16 @@ export class Encoder extends Decoder {
 		let recordIdsToRemove = []
 		let transitionsCount = 0
 		let serializationsSinceTransitionRebuild = 0
-		
+
 		this.mapEncode = function(value, encodeOptions) {
 			// Experimental support for premapping keys using _keyMap instad of keyMap - not optiimised yet)
 			if (this._keyMap && !this._mapped) {
 				//console.log('encoding ', value)
 				switch (value.constructor.name) {
-					case 'Array': 
+					case 'Array':
 						value = value.map(r => this.encodeKeys(r))
 						break
-					//case 'Map': 
+					//case 'Map':
 					//	value = this.encodeKeys(value)
 					//	break
 				}
@@ -81,8 +81,8 @@ export class Encoder extends Decoder {
 			}
 			return this.encode(value, encodeOptions)
 		}
-		
-		this.encode = function(value, encodeOptions)	{
+
+		this.encode = function(value, encodeOptions) {
 			if (!target) {
 				target = new ByteArrayAllocate(8192)
 				targetView = new DataView(target.buffer, 0, 8192)
@@ -90,7 +90,7 @@ export class Encoder extends Decoder {
 			}
 			safeEnd = target.length - 10
 			if (safeEnd - position < 0x800) {
-				// don't start too close to the end, 
+				// don't start too close to the end,
 				target = new ByteArrayAllocate(target.length)
 				targetView = new DataView(target.buffer, 0, target.length)
 				safeEnd = target.length - 10
@@ -469,7 +469,7 @@ export class Encoder extends Decoder {
 							referee.references.push(position - start)
 							position += 2 // TODO: also support 32-bit
 							return
-						} else 
+						} else
 							referenceMap.set(value, { offset: position - start })
 					}
 					let constructor = value.constructor
@@ -507,16 +507,16 @@ export class Encoder extends Decoder {
 							targetView.setUint32(position, length)
 							position += 4
 						}
-						if (encoder.keyMap) { 
+						if (encoder.keyMap) {
 							for (let [ key, entryValue ] of value) {
 								encode(encoder.encodeKey(key))
 								encode(entryValue)
-							} 
-						} else { 
+							}
+						} else {
 							for (let [ key, entryValue ] of value) {
-								encode(key) 
+								encode(key)
 								encode(entryValue)
-							} 	
+							}
 						}
 					} else {
 						for (let i = 0, l = extensions.length; i < l; i++) {
@@ -632,8 +632,7 @@ export class Encoder extends Decoder {
 				targetView.setUint32(position, length)
 				position += 4
 			}
-			let key
-			if (encoder.keyMap) { 
+			if (encoder.keyMap) {
 				for (let i = 0; i < length; i++) {
 					encode(encoder.encodeKey(keys[i]))
 					encode(vals[i])
@@ -656,10 +655,10 @@ export class Encoder extends Decoder {
 					encode(object[key])
 					size++
 				}
-			} else { 
+			} else {
 				for (let key in object) if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key)) {
-						encode(key)
-						encode(object[key])
+					encode(key)
+					encode(object[key])
 					size++
 				}
 			}
@@ -683,7 +682,7 @@ export class Encoder extends Decoder {
 						newTransitions++
 					}
 					transition = nextTransition
-				}				
+				}
 			} else {
 				for (let key in object) if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key)) {
 					nextTransition = transition[key]
