@@ -633,16 +633,27 @@ export class Encoder extends Decoder {
 				position += 8
 			} else if (type === 'undefined') {
 				target[position++] = 0xf7
+			} else if (type === 'function') {
+				target[position++] = 0xf7
+			} else if (type === 'symbol') {
+				target[position++] = 0xf7
 			} else {
 				throw new Error('Unknown type: ' + type)
 			}
 		}
 
+		/**@param {Object} object*/
+		function getObjectEntries(object) {
+			return Object.entries(object).filter((v) => typeof v[1] !== 'function')
+		} //if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key)) {
+		/**@param {{[n:string]:unknown}} object*/
+		function getObjectKeys(object) {
+			return Object.keys(object).filter((k) => typeof object[k] !== 'function')
+		}
 		const writeObject = this.useRecords === false ? this.variableMapSize ? (object) => {
 			// this method is slightly slower, but generates "preferred serialization" (optimally small for smaller objects)
-			let keys = Object.keys(object)
-			let vals = Object.values(object)
-			let length = keys.length
+			let keyvals = getObjectEntries(object)
+			let length = keyvals.length
 			if (length < 0x18) {
 				target[position++] = 0xa0 | length
 			} else if (length < 0x100) {
@@ -659,13 +670,13 @@ export class Encoder extends Decoder {
 			}
 			if (encoder.keyMap) {
 				for (let i = 0; i < length; i++) {
-					encode(encoder.encodeKey(keys[i]))
-					encode(vals[i])
+					encode(encoder.encodeKey(keyvals[i][0]))
+					encode(keyvals[i][1])
 				}
 			} else {
 				for (let i = 0; i < length; i++) {
-					encode(keys[i])
-					encode(vals[i])
+					encode(keyvals[i][0])
+					encode(keyvals[i][1])
 				}
 			}
 		} :
@@ -675,15 +686,15 @@ export class Encoder extends Decoder {
 			position += 2
 			let size = 0
 			if (encoder.keyMap) {
-				for (let key in object) if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key)) {
+				for (let [key, val] of getObjectEntries(object)) {
 					encode(encoder.encodeKey(key))
-					encode(object[key])
+					encode(val)
 					size++
 				}
 			} else {
-				for (let key in object) if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key)) {
+				for (let [key, val] of getObjectEntries(object)) {
 					encode(key)
-					encode(object[key])
+					encode(val)
 					size++
 				}
 			}
@@ -697,9 +708,9 @@ export class Encoder extends Decoder {
 				newTransitions = 0,
 				length = 0,
 				/**@type {number|undefined}*/ parentRecordId,
-				/**@type {string[]|undefined} */ keys
+				/**@type {string[]|undefined} */ keys, allKeys = getObjectKeys(object)
 			if (this.keyMap) {
-				keys = Object.keys(object).map(k => this.encodeKey(k))
+				keys = allKeys.map(k => encoder.encodeKey(k))
 				length = keys.length
 				for (let i = 0; i < length; i++) {
 					let key = keys[i]
@@ -711,7 +722,7 @@ export class Encoder extends Decoder {
 					transition = nextTransition
 				}
 			} else {
-				for (let key in object) if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key)) {
+				for (let key of allKeys) {
 					nextTransition = transition[key]
 					if (!nextTransition) {
 						if (transition[RECORD_SYMBOL] & 0x100000) {// this indicates it is a brancheable/extendable terminal node, so we will use this record id and extend it
@@ -731,8 +742,9 @@ export class Encoder extends Decoder {
 				target[position++] = (recordId >> 8) | 0xe0
 				target[position++] = recordId & 0xff
 			} else {
-				if (!keys)
-					keys = transition.__keys__ || (transition.__keys__ = Object.keys(object))
+				if (!keys) {
+					keys = transition.__keys__ || (transition.__keys__ = allKeys)
+				}
 				if (parentRecordId === undefined) {
 					recordId = structures.nextId++
 					if (!recordId) {
@@ -772,9 +784,8 @@ export class Encoder extends Decoder {
 					encode(0xe000 + recordId)
 					encode(keys)
 					if (skipValues) return; // special exit for iterator
-					for (let key in object)
-						if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key))
-							encode(object[key])
+					for (let key of allKeys)
+						encode(object[key])
 					return
 				}
 			}
@@ -827,7 +838,7 @@ export class Encoder extends Decoder {
 				if (useRecords)
 					writeObject(object, true); // write the record identifier
 				else
-					writeEntityLength(Object.keys(object).length, 0xa0);
+					writeEntityLength(getObjectKeys(object).length, 0xa0);
 				for (let key in object) {
 					let value = object[key];
 					if (!useRecords) encode(key);
@@ -1067,6 +1078,7 @@ function findRepetitiveStrings(value, packedValues) {
 					let includeKeys = !packedValues.encoder.useRecords
 					for (var key in value) {
 						if (value.hasOwnProperty(key)) {
+							if (typeof value[key] === 'function') continue
 							if (includeKeys)
 								findRepetitiveStrings(key, packedValues)
 							findRepetitiveStrings(value[key], packedValues)
