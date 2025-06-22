@@ -1,4 +1,6 @@
+"use strict";
 import { Decoder, mult10, Tag, typedArrays, addExtension as decodeAddExtension } from './decode.js'
+/** @import {Options, EffectiveBufferConstructor, BufferReturnType} from "./index.d.ts" */
 let textEncoder
 try {
 	textEncoder = new TextEncoder()
@@ -6,28 +8,44 @@ try {
 let extensions, extensionClasses
 const Buffer = typeof globalThis === 'object' && globalThis.Buffer;
 const hasNodeBuffer = typeof Buffer !== 'undefined'
+/**@type {EffectiveBufferConstructor}*/
 const ByteArrayAllocate = hasNodeBuffer ? Buffer.allocUnsafeSlow : Uint8Array
+/**@type {BufferReturnType}*/
 const ByteArray = hasNodeBuffer ? Buffer : Uint8Array
 const MAX_STRUCTURES = 0x100
 const MAX_BUFFER_SIZE = hasNodeBuffer ? 0x100000000 : 0x7fd00000
 let serializationId = 1
 let throwOnIterable
+/** @type {BufferReturnType} */
 let target
+/** @type DataView */
 let targetView
 let position = 0
 let safeEnd = 0
+/** @type {([string, string] & {position?:number, size:number}) | null} */
 let bundledStrings = null
 const MAX_BUNDLE_SIZE = 0xf000
 const hasNonLatin = /[\u0080-\uFFFF]/
 const RECORD_SYMBOL = Symbol('record-id')
+
+/** @typedef {{__keys__?:string[], [RECORD_SYMBOL]?: number} & {[n:string]:Transitions}} Transitions */
+/** @typedef {string} StructureId */
+/** @typedef {{nextId?:number, transitions?:Transitions | null} & {[n:StructureId]: string[]}} Structures */
+/** @typedef {object} EncoderInner
+ * @prop {(key:string)=>string | number} encodeKey
+ * @prop {string[]} sharedValues
+ * @prop {Structures | undefined} structures */
+/** @implements Options @extends Decoder */
 export class Encoder extends Decoder {
-	constructor(options) {
+	constructor(/** @type Options */ options) {
 		super(options)
 		this.offset = 0
 		let typeBuffer
 		let start = 0
+		/** @type {Structures | undefined} */
 		let sharedStructures
 		let hasSharedUpdate
+		/** @type {Structures} */
 		let structures
 		let referenceMap
 		options = options || {}
@@ -38,6 +56,7 @@ export class Encoder extends Decoder {
 				return textEncoder.encodeInto(string, target.subarray(position)).written
 			} : false
 
+		/** @type {EncoderInner & Encoder & Options} */
 		let encoder = this
 		let hasSharedStructures = options.structures || options.saveStructures
 		let maxSharedStructures = options.maxSharedStructures
@@ -50,17 +69,21 @@ export class Encoder extends Decoder {
 			maxSharedStructures = 0
 		}
 		if (!this.structures)
+			/** @type {Structures | undefined} */
 			this.structures = []
 		if (this.saveStructures)
 			this.saveShared = this.saveStructures
-		let samplingPackedValues, packedObjectMap, sharedValues = options.sharedValues
-		let sharedPackedObjectMap
+		let /**@type {Map<string, {count:number}>}*/ samplingPackedValues,
+			packedObjectMap,
+			/**@type {string[] | undefined}*/ sharedValues = options.sharedValues,
+			/**@type {{[n:string]:number}}*/ sharedPackedObjectMap
 		if (sharedValues) {
 			sharedPackedObjectMap = Object.create(null)
 			for (let i = 0, l = sharedValues.length; i < l; i++) {
 				sharedPackedObjectMap[sharedValues[i]] = i
 			}
 		}
+		/** @type {Transitions[]} */
 		let recordIdsToRemove = []
 		let transitionsCount = 0
 		let serializationsSinceTransitionRebuild = 0
@@ -82,6 +105,7 @@ export class Encoder extends Decoder {
 			return this.encode(value, encodeOptions)
 		}
 
+		/** @type (value: unknown, options: number) => Uint8Array | Buffer | undefined */
 		this.encode = function(value, encodeOptions) {
 			if (!target) {
 				target = new ByteArrayAllocate(8192)
@@ -155,24 +179,24 @@ export class Encoder extends Decoder {
 			structures = sharedStructures || []
 			packedObjectMap = sharedPackedObjectMap
 			if (options.pack) {
-				let packedValues = new Map()
-				packedValues.values = []
-				packedValues.encoder = encoder
-				packedValues.maxValues = options.maxPrivatePackedValues || (sharedPackedObjectMap ? 16 : Infinity)
-				packedValues.objectMap = sharedPackedObjectMap || false
-				packedValues.samplingPackedValues = samplingPackedValues
+				/** @type {string[]}*/ let values = []
+				/** @type {PackMap}*/ let packedValues = {
+					map: new Map(), values,
+					maxValues: options.maxPrivatePackedValues || (sharedPackedObjectMap ? 16 : Infinity),
+					objectMap: sharedPackedObjectMap || false,
+					encoder, samplingPackedValues
+				}
 				findRepetitiveStrings(value, packedValues)
-				if (packedValues.values.length > 0) {
+				if (values.length > 0) {
 					target[position++] = 0xd8 // one-byte tag
 					target[position++] = 51 // tag 51 for packed shared structures https://www.potaroo.net/ietf/ids/draft-ietf-cbor-packed-03.txt
 					writeArrayHeader(4)
-					let valuesArray = packedValues.values
-					encode(valuesArray)
+					encode(values)
 					writeArrayHeader(0) // prefixes
 					writeArrayHeader(0) // suffixes
 					packedObjectMap = Object.create(sharedPackedObjectMap || null)
-					for (let i = 0, l = valuesArray.length; i < l; i++) {
-						packedObjectMap[valuesArray[i]] = i
+					for (let i = 0, l = values.length; i < l; i++) {
+						packedObjectMap[values[i]] = i
 					}
 				}
 			}
@@ -255,6 +279,7 @@ export class Encoder extends Decoder {
 				samplingPackedValues = null
 			}
 		}
+		/** @param {unknown} value*/
 		const encode = (value) => {
 			if (position > safeEnd)
 				target = makeRoom(position)
@@ -665,12 +690,14 @@ export class Encoder extends Decoder {
 			target[objectOffset++ + start] = size >> 8
 			target[objectOffset + start] = size & 0xff
 		} :
+		/**@template {{}} T @param {T} object @param {true} [skipValues] */
 		(object, skipValues) => {
-			let nextTransition, transition = structures.transitions || (structures.transitions = Object.create(null))
-			let newTransitions = 0
-			let length = 0
-			let parentRecordId
-			let keys
+			let /**@type {Transitions|undefined}*/ nextTransition,
+				/**@type {Transitions}*/ transition = structures.transitions || (structures.transitions = Object.create(null)),
+				newTransitions = 0,
+				length = 0,
+				/**@type {number|undefined}*/ parentRecordId,
+				/**@type {string[]|undefined} */ keys
 			if (this.keyMap) {
 				keys = Object.keys(object).map(k => this.encodeKey(k))
 				length = keys.length
@@ -761,7 +788,9 @@ export class Encoder extends Decoder {
 				if (typeof object.hasOwnProperty !== 'function' || object.hasOwnProperty(key))
 					encode(object[key])
 		}
+		/** @param {number} end */
 		const makeRoom = (end) => {
+			/** @type number */
 			let newSize
 			if (end > 0x1000000) {
 				// special handling for really large buffers
@@ -846,8 +875,15 @@ export class Encoder extends Decoder {
 			} else {
 				encode(object);
 			}
-			if (finalIterable && position > start) yield target.subarray(start, position);
-			else if (position - start > chunkThreshold) {
+			if (finalIterable && position > start) {
+				if(bundledStrings && bundledStrings.position) {
+					writeBundles(start, encode)
+				}
+				yield target.subarray(start, position);
+			} else if (position - start > chunkThreshold) {
+				if(bundledStrings && bundledStrings.position) {
+					writeBundles(start, encode)
+				}
 				yield target.subarray(start, position);
 				restartEncoding();
 			}
@@ -991,30 +1027,32 @@ function isBlob(object) {
 	let tag = object[Symbol.toStringTag];
 	return tag === 'Blob' || tag === 'File';
 }
+/** @typedef {{values:string[], maxValues:number, objectMap:{}|false, samplingPackedValues:Map<string,{count:number}>, map: Map<string,{count:number}>}} PackMap*/
+/** @param {unknown} value @param {PackMap} packedValues */
 function findRepetitiveStrings(value, packedValues) {
 	switch(typeof value) {
 		case 'string':
-			if (value.length > 3) {
-				if (packedValues.objectMap[value] > -1 || packedValues.values.length >= packedValues.maxValues)
+			if (value.length <= 3 ||
+				packedValues.values.length >= packedValues.maxValues ||
+				packedValues.objectMap[value] > -1)
 					return
-				let packedStatus = packedValues.get(value)
-				if (packedStatus) {
-					if (++packedStatus.count == 2) {
-						packedValues.values.push(value)
-					}
-				} else {
-					packedValues.set(value, {
-						count: 1,
-					})
-					if (packedValues.samplingPackedValues) {
-						let status = packedValues.samplingPackedValues.get(value)
-						if (status)
-							status.count++
-						else
-							packedValues.samplingPackedValues.set(value, {
-								count: 1,
-							})
-					}
+			let packedStatus = packedValues.map.get(value)
+			if (packedStatus) {
+				if (++packedStatus.count == 2) {
+					packedValues.values.push(value)
+				}
+			} else {
+				packedValues.map.set(value, {
+					count: 1,
+				})
+				if (packedValues.samplingPackedValues) {
+					let status = packedValues.samplingPackedValues.get(value)
+					if (status)
+						status.count++
+					else
+						packedValues.samplingPackedValues.set(value, {
+							count: 1,
+						})
 				}
 			}
 			break

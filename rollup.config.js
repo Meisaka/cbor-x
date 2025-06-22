@@ -25,7 +25,7 @@ export default [
     {
         input: "index.js",
         plugins: [
-            replace({ Function: 'BlockedFunction '})
+            replace({ Function: 'BlockedFunction ', preventAssignment: true })
         ],
         output: {
             file: "dist/index-no-eval.cjs",
@@ -37,7 +37,7 @@ export default [
     {
         input: "decode.js",
         plugins: [
-            replace({ Function: 'BlockedFunction '})
+            replace({ Function: 'BlockedFunction ', preventAssignment: true })
         ],
         output: {
             file: "dist/decode-no-eval.cjs",
@@ -61,7 +61,7 @@ export default [
     {
         input: "index.js",
         plugins: [
-            replace({ Function: 'BlockedFunction '}),
+            replace({ Function: 'BlockedFunction ', preventAssignment: true }),
             terser({})
         ],
         output: {

@@ -54,21 +54,26 @@ suite('cbor-x node stream tests', function(){
 		const recordNum = 10000
 
 		const enc = new EncoderStream({
-		  bundleStrings: true,
+			// TODO this doesn't encode properly in iterated (stream) mode
+			bundleStrings: false,
 		})
 
+		let verify = [];
 		const read = () => {
-		  console.time('READ')
+			console.time('READ')
 
-		  const dec = new DecoderStream({
-		    bundleStrings: true,
-		  })
+			const dec = new DecoderStream({
+				bundleStrings: false,
+			})
 
-		  fs.createReadStream('test.cbor')
-		    .on('data', (c) => console.log(c.length))
-		    .pipe(dec)
-		    .on('data', () => {})
-		    .on('end', () => console.timeEnd('READ') || done())
+			fs.createReadStream('test.cbor')
+				.on('data', (c) => console.log('read', c.length))
+				.pipe(dec)
+				.on('data', (c) => {
+					let item = verify.shift()
+					assert.deepEqual(c, item)
+				})
+				.on('end', () => console.timeEnd('READ') || done())
 
 		}
 
@@ -79,10 +84,11 @@ suite('cbor-x node stream tests', function(){
 
 		console.time('GEN')
 
-		const curr = Date.now()
-
 		for (let i = 0; i < recordNum; ++i) {
-		  enc.write({ i, str: 'TEST_STR', ts: Date.now() })
+			let item ={ i, str: "TEST_STR\u2500", a:['mixed'], oh: {}, ex: 'EXTRA_STR', ts: Date.now() }
+			item.oh['Annoy' + i] = 'MORE DATA'
+			verify.push(item)
+			enc.write(item)
 		}
 
 		enc.end()

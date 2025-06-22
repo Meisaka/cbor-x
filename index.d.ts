@@ -36,6 +36,8 @@ export interface Options {
 	sequential?: boolean
 }
 type ClassOf<T> = new (...args: any[]) => T;
+type EffectiveBufferConstructor = typeof import('node:buffer') extends { Buffer: infer B } ? BufferConstructorType : Uint8ArrayConstructor;
+type BufferReturnType = typeof import('node:buffer') extends { Buffer: infer B } ? Buffer : Uint8Array;
 interface Extension<T, R> {
 	Class: ClassOf<T>
 	tag: number
@@ -56,9 +58,9 @@ export function roundFloat32(float32Number: number): number
 export let isNativeAccelerationEnabled: boolean
 
 export class Encoder extends Decoder {
-	encode(value: any): Buffer
+	encode(value: any): BufferReturnType
 }
-export function encode(value: any): Buffer
+export function encode(value: any): BufferReturnType
 export function encodeAsIterable(value: any): Iterable<Buffer | Blob | AsyncIterable<Buffer>>
 export function encodeAsAsyncIterable(value: any): AsyncIterable<Buffer>
 

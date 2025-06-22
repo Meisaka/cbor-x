@@ -1,3 +1,6 @@
+"use strict";
+/** @import * as CBORX from '../index' */
+/** @type {CBORX} */
 var cborX = tryRequire("../dist/node.cjs");
 var msgpack_node = tryRequire("msgpack");
 var msgpack_msgpack = tryRequire("@msgpack/msgpack");
@@ -44,37 +47,64 @@ var COL2 = 7;
 var COL3 = 5;
 var COL4 = 6;
 
-console.log(rpad("operation", COL1), "|", "  op  ", "|", "  ms ", "|", " op/s ");
+console.log(rpad("operation", COL1), "|", ctr("op", COL2), "|", ctr("ms", COL3), "|", ctr("op/s", COL4));
 console.log(rpad("", COL1, "-"), "|", lpad(":", COL2, "-"), "|", lpad(":", COL3, "-"), "|", lpad(":", COL4, "-"));
 
 var buf, obj;
 
 if (cborX) {
-  var encoder = new cborX.Encoder({ structures: [] })
-  buf = bench('cbor-x w/ records: encoder.encode(obj);', encoder.encode.bind(encoder), data);
+  // cbor-x uses a lot of internal global state
+  // this can affect performance
+  data = JSON.parse(expected);
+  buf = bench('require("cbor-x").encode(obj);', cborX.encode, data);
+  obj = bench('require("cbor-x").decode(buf);', cborX.decode, buf);
+  test(obj);
   console.log('size', buf.length)
 
-  obj = bench('cbor-x w/ records: encoder.decode(buf);', encoder.decode.bind(encoder), buf);
+  var encoder = new cborX.Encoder({ structures: [] })
+  data = JSON.parse(expected);
+  buf = bench('cbor-x w/ cached records: encoder.encode(obj);', encoder.encode.bind(encoder), data);
+  buf = Buffer.copyBytesFrom(buf)
+  obj = bench('cbor-x w/ cached records: encoder.decode(buf);', encoder.decode.bind(encoder), buf);
   test(obj);
+  // when creating a decoder w/structures, we need to use the same ones we encoded with
+  // or use the original encoder as above
+  let decoder = new cborX.Decoder({ structures: JSON.parse(JSON.stringify(encoder.structures)) })
+  obj = bench('cbor-x w/ cached records: decoder.decode(buf);', decoder.decode.bind(decoder), buf);
+  test(obj);
+  console.log('size', buf.length)
 
+  encoder = new cborX.Encoder({})
+  data = JSON.parse(expected);
+  buf = bench('cbor-x w/ records: encoder.encode(obj);', encoder.encode.bind(encoder), data);
+  buf = Buffer.copyBytesFrom(buf)
+  decoder = new cborX.Decoder({})
+  obj = bench('cbor-x w/ records: decoder.decode(buf);', decoder.decode.bind(decoder), buf);
+  test(obj);
+  console.log('size', buf.length)
+
+  data = JSON.parse(expected);
   encoder = new cborX.Encoder({ useRecords: false, pack: true })
   buf = bench('cbor-x packed: encoder.encode(obj);', encoder.encode.bind(encoder), data);
+  buf = Buffer.copyBytesFrom(buf)
 
-  obj = bench('cbor-x packed: encoder.decode(buf);', encoder.decode.bind(encoder), buf);
+  decoder = new cborX.Encoder({ useRecords: false, pack: true })
+  obj = bench('cbor-x packed: decoder.decode(buf);', decoder.decode.bind(decoder), buf);
   test(obj);
   console.log('size', buf.length)
 
 
 //  buf = bench('require("cbor-x").encode(obj) and compress;', (data) => deflateSync(cborX.encode(data)), data);
   //console.log('size', buf.length)
+  data = JSON.parse(expected);
   buf = bench('require("cbor-x").encode(obj);', cborX.encode, data);
-
   obj = bench('require("cbor-x").decode(buf);', cborX.decode, buf);
   test(obj);
   console.log('size', buf.length)
-  
+
 }
 if (JSON) {
+  data = JSON.parse(expected);
   buf = bench('buf = Buffer(JSON.stringify(obj));', JSON_stringify, data);
   obj = bench('obj = JSON.parse(buf);', JSON.parse, buf);
   test(obj);
@@ -82,9 +112,10 @@ if (JSON) {
 
 
 if (JSON) {
-  buf = bench('buf = Buffer(JSON.stringify(obj));', JSON_stringify, data);
+  buf = bench('buf = JSON.stringify(obj);', JSON.stringify, data);
   obj = bench('obj = JSON.parse(buf);', JSON.parse, buf);
   test(obj);
+  console.log('size', buf.length)
 }
 
 if (msgpack_lite) {
@@ -155,6 +186,7 @@ if (cbor) {
   buf = bench('buf = require("cbor").encode(obj);', cbor.encode, data);
   obj = bench('obj = require("cbor").decode(buf);', cbor.decode, buf);
   test(obj);
+  console.log('size', buf.length)
 }
 if (cborSync) {
   buf = bench('buf = require("cbor-sync").encode(obj);', cborSync.encode, data);
@@ -163,7 +195,7 @@ if (cborSync) {
 }
 
 function JSON_stringify(src) {
-  return Buffer(JSON.stringify(src));
+  return Buffer.from(JSON.stringify(src));
 }
 
 function msgpack_codec_pack(data) {
@@ -184,7 +216,8 @@ function bench(name, func, src) {
     var end = new Date() - 0;
     duration = end - start;
     if (duration >= limit) break;
-    while ((++count) % 100) ret = func(src);
+    var runs = 100;
+    while (runs--) { ++count; ret = func(src); }
   }
   name = rpad(name, COL1);
   var score = Math.floor(count / duration * 1000);
@@ -207,6 +240,10 @@ function lpad(str, len, chr) {
   while (str.length < len) str = chr + str;
   return str;
 }
+function ctr(str, len) {
+  var hlen = (len >> 1) + (str.length >> 1)
+  return lpad(rpad(str, hlen), len)
+}
 
 function test(actual) {
   if (actual === SKIP) return;
@@ -214,6 +251,7 @@ function test(actual) {
   if (actual === expected) return;
   console.warn("expected: " + expected);
   console.warn("actual:   " + actual);
+  throw new Error('verify failed');
 }
 
 function SKIP() {
